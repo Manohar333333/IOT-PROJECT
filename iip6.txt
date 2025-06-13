@@ -1,0 +1,142 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <DHT.h>
+#include <math.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// DHT setup
+#define DHTPIN 4
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// Soil & AQI analog pins
+#define SOIL_PIN 34
+#define AQI_PIN 35
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found");
+    while (1);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void loop() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+  int soilValue = analogRead(SOIL_PIN);
+  int aqiValue = analogRead(AQI_PIN);
+
+  int moisture = map(soilValue, 4095, 0, 0, 100);
+  int aqi = map(aqiValue, 0, 4095, 0, 500);
+
+  bool eyesOpen = (millis() / 1000) % 2; // blink every 1s
+  int bounceOffset = sin(millis() / 500.0) * 3;
+
+  String mood;
+
+  if (isnan(temp) || isnan(hum)) {
+    mood = "sensorError";
+  } else if (moisture < 20 && temp > 35 && aqi > 300) {
+    mood = "dead";
+  } else if (temp > 36 && hum < 25) {
+    mood = "sweaty";
+  } else if (temp > 33 && hum < 40 && moisture < 25) {
+    mood = "thirsty";
+  } else if (temp < 14 && hum < 40 && moisture < 30) {
+    mood = "cold";
+  } else if (moisture > 90 && hum > 85) {
+    mood = "tooWet";
+  } else if (aqi > 150 && aqi <= 300) {
+    mood = "sweaty";
+  } else if (aqi > 300) {
+    mood = "dead";
+  } else if (temp >= 22 && temp <= 28 && hum >= 50 && hum <= 70 && aqi <= 50 && moisture >= 50 && moisture <= 80) {
+    mood = "happy";
+  } else {
+    mood = "neutral";
+  }
+
+  drawFaceWithStats(20, eyesOpen, temp, hum, moisture, aqi, mood, bounceOffset);
+  delay(2000);
+}
+
+void drawFaceWithStats(int radius, bool eyesOpen, float temp, float hum, int moisture, int aqi, String mood, int bounceOffset) {
+  display.clearDisplay();
+
+  // Display stats
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("T:");
+  display.print(temp, 0);
+  display.print("C");
+
+  display.setCursor(72, 0);
+  display.print("H:");
+  display.print(hum, 0);
+  display.print("%");
+
+  display.setCursor(0, 52);
+  display.print("M:");
+  display.print(moisture);
+  display.print("%");
+
+  display.setCursor(72, 52);
+  display.print("AQI:");
+  display.print(aqi);
+
+  // Draw face
+  int cx = 64, cy = 32 + bounceOffset;
+  display.drawCircle(cx, cy, radius, SSD1306_WHITE);
+
+  // Eyes
+  if (eyesOpen) {
+    display.fillCircle(cx - 8, cy - 6, 2, SSD1306_WHITE);
+    display.fillCircle(cx + 8, cy - 6, 2, SSD1306_WHITE);
+  } else {
+    display.drawLine(cx - 10, cy - 6, cx - 6, cy - 6, SSD1306_WHITE);
+    display.drawLine(cx + 6, cy - 6, cx + 10, cy - 6, SSD1306_WHITE);
+  }
+
+  // Mouth (based on mood)
+  for (int i = -10; i <= 10; i++) {
+    int x = cx + i;
+    int y;
+
+    if (mood == "happy") {
+      y = cy + 10 - 0.1 * i * i;
+    } else if (mood == "cold") {
+      y = cy + 12;
+    } else if (mood == "sweaty") {
+      y = cy + 14 - abs(i) / 2;
+    } else if (mood == "thirsty") {
+      y = cy + 14;
+    } else if (mood == "hot") {
+      y = cy + 13;
+    } else if (mood == "tooWet") {
+      y = cy + 15 - abs(i) / 4;
+    } else if (mood == "dead") {
+      y = cy + 16 - abs(i) / 3;
+    } else if (mood == "sensorError") {
+      y = cy + 5;
+      display.setCursor(cx - 30, cy - 5);
+      display.print("Sensor Err");
+    } else {
+      y = cy + 12; // neutral
+    }
+
+    display.drawPixel(x, y, SSD1306_WHITE);
+  }
+
+  display.display();
+}
